@@ -2,25 +2,10 @@ import customtkinter as tk
 import requests
 import json
 import sys
-# from time import sleep
 
 
 
-
-
-# typewriter effect
-# def type(words: str):
-#     for char in words:
-#         sleep(0.015)
-#         sys.stdout.write(char)
-#         sys.stdout.flush()
-#     print()
-def type(words: str):
-    print(words)
-
-
-
-def scan_file(file_path, update_path_display, colors, index, log):
+def scan_file(file_path, update_path_status, i, log):
 
     url = "https://www.virustotal.com/vtapi/v2/file/scan"
 
@@ -44,9 +29,8 @@ def scan_file(file_path, update_path_display, colors, index, log):
         report = json.loads(report)
 
         if "data" not in report:
-            colors[index] = "unfound"
             log(f"\nError\n", "red")
-            update_path_display()
+            update_path_status(i, "unfound")
             return
 
         name = (report["data"]["attributes"]).get("meaningful_name", "unable to fetch")
@@ -79,17 +63,18 @@ def scan_file(file_path, update_path_display, colors, index, log):
 
 
         if malicious_count == 0:
-            colors[index] = "clean"
             log("no antivirus found the given file malicious !!\n\n", "green")
+            update_path_status(i, "clean")
         else:
-            colors[index] = "malicious"
             log(f"{malicious_count} antivirus found the given file malicious !!\n\n", "red")
+            update_path_status(i, "malicious")
 
-        print(f"Done! {index}")
+
+        print(f"Done! ({i})")
         
     except:
-        colors[index] = "unfound"
         print("file path invalid")
         log(f"\nfile path invalid\n", "red")
+        update_path_status(i, "unfound")
 
-    update_path_display()
+    

@@ -1,10 +1,12 @@
 import os
-from threading import Thread
+import threading
+from time import sleep
 import tkinter
 import tkinter.messagebox
 import customtkinter as tk
 import colorama
 import scan
+import detect_creation
 
 # Get all files from the folder and subfolders
 def search_all_subfolders(path):
@@ -21,25 +23,62 @@ def search_all_subfolders(path):
     return subfolders
 
 # Write all the files that will be searched
-def list_files(paths, colors):
-    files.configure(state=tk.NORMAL)
-    files.delete(0.0, "end")
+def update_file_status(paths, colors, do_log):
+    if do_log:
+        files.configure(state=tk.NORMAL)
+        files.delete(0.0, "end")
+
     malicious_count = 0
-    completed = True
+    malicious_paths = "\n"
+    incomplete_flag = True
     for i in range(len(paths)):
-        files.insert("end", paths[i].split("/")[-1] + "\n\n", colors[i])
+        if do_log:
+            files.insert("end", paths[i].split("/")[-1] + "\n\n", colors[i])
+        
         if (colors[i] == "white"):
-            completed = False
-        if (completed and colors[i] == "malicious"):
+            incomplete_flag = False
+        if (incomplete_flag and colors[i] == "malicious"):
             malicious_count += 1
+            malicious_paths += f"{paths[i]}\n"
 
     files.configure(state=tk.DISABLED)
 
-    if (completed):
-        tkinter.messagebox.showinfo(title="scan completed", message=f"{malicious_count} possibly malicious files found")
+    # Check if the scan was completed
+    if incomplete_flag and colors[0] != "locked":
+        # A lazy replacement for thread locking because i wanna finish this already :)
+        colors[0] = "locked"
+        log.configure(state=tk.DISABLED)
+
+        print(f"\n\n{malicious_paths}")
+        if do_log:
+            tkinter.messagebox.showinfo(title="scan completed", message=f"{malicious_count} possibly malicious files found{malicious_paths}")
+        elif malicious_count > 0:
+            tkinter.messagebox.showwarning(title="malicious files found!", message=f"{malicious_count} possibly malicious files found!{malicious_paths}")
 
 
-# Scan files
+
+# Scan all files in the paths list
+def scan_files(paths, do_log=False):
+    threads = []
+    colors = ["white"] * len(paths)
+
+    def log_text(text, tag):
+        if do_log:
+            log.insert("end", text, tag)
+            log.see("end")
+        else:
+            print(text)
+        
+    update_file_status(paths, colors, do_log)
+    for i in range(len(paths)):
+        def update_at_index(i, color):
+            colors[i] = color
+            update_file_status(paths, colors, do_log)
+
+        t = threading.Thread(target=scan.scan_file, args=(paths[i], update_at_index, i, log_text))
+        threads.append(t)
+        t.start()
+
 def scan_btn():
     path_str = path_input.get()
     log.configure(state=tk.NORMAL)
@@ -48,27 +87,27 @@ def scan_btn():
     if not path_str:
         tkinter.messagebox.showerror(title="input error", message="enter a file path")
         return
-    
-    def log_text(text, tag):
-        log.insert("end", text, tag)
-        log.see("end")
 
-    threads = []
-    paths = search_all_subfolders(path_str)
-    colors = ["white"] * len(paths)
-    list_files(paths, colors)
-    for i in range(len(paths)):
-        t = Thread(target=scan.scan_file, args=(
-            paths[i], lambda: list_files(paths, colors),
-            colors, i, log_text
-        ))
-        threads.append(t)
-        t.start()
+    scan_files(search_all_subfolders(path_str), True)
+
+# Start background scanning
+def check_new_files(choice):
+    choice_to_min = {
+        "15min": 15,
+        "30min": 30,
+        "45min": 45,
+        "1hr": 60 
+    }
+
+    detect_creation.start_thread(choice_to_min[choice] * 60, scan_files)
 
     
-    # for t in threads:
-    #     t.join()
-    # list_files(paths, colors)
+    
+
+
+
+
+
     
     
 
@@ -93,15 +132,19 @@ def browse_files_btn():
 
 
 
+
+
 # Theme
 tk.set_default_color_theme("green")
+tk.set_appearance_mode("Dark")
 font = lambda size: ("Ariel", size, "bold")
 
 # App frame
 app = tk.CTk()
-app.geometry("720x480")
+app.geometry("720x505")
 app.title("AntiVirus")
-app.iconbitmap("icon.ico")
+app.iconbitmap("images/icon.ico")
+app.resizable(False, False)
 
 # UI elements
 title = tk.CTkLabel(app, text="ANTIVIRUS", font=font(20))
@@ -130,7 +173,7 @@ btn = tk.CTkButton(app, text="SCAN", command=scan_btn, font=font(35), width=490,
 btn.pack()
 
 log_frame = tk.CTkFrame(app)
-log_frame.pack(pady=(40, 0))
+log_frame.pack(pady=(30, 0))
 
 # Log files in path
 files = tk.CTkTextbox(log_frame, width=225, state=tk.DISABLED)
@@ -150,13 +193,26 @@ log.tag_config("red", foreground="red")
 # log.tag_config("clean", background="white", foreground="green")
 # log.tag_config("danger", background="white", foreground="red")
 
+# Make the frame invisible
+# auto_frame = tk.CTkFrame(app, fg_color="#242424")
+auto_frame = tk.CTkFrame(app)
+auto_frame.pack(padx=(0, 220), pady=(10, 0))
 
+# Run background scan on new files (Keep app running)
+auto_scan_text = tk.CTkLabel(auto_frame, text="Auto scan every:", font=font(20), text_color="gray50")
+auto_scan_text.pack(padx=10, pady=10, side=tk.LEFT)
 
+timing_options = ["15min", "30min", "45min", "1hr"]
+selected_timing = tk.StringVar(value=timing_options[0])
+auto_scan_timing = tk.CTkOptionMenu(auto_frame, values=timing_options, variable=selected_timing, command=check_new_files, width=80)
+auto_scan_timing.pack(padx=(0, 10), side=tk.RIGHT)
 
+check_new_files("15min")
 
 
 
 #run app
+detect_creation.start()
 app.mainloop()
 
-
+detect_creation.exit_event.set()
